@@ -360,6 +360,7 @@ dependencies = [
  "const-oid",
  "der",
  "ecdsa",
+ "elliptic-curve",
  "getrandom",
  "hex-literal",
  "p256",
@@ -583,6 +584,7 @@ dependencies = [
  "digest",
  "ff",
  "group",
+ "hkdf",
  "hybrid-array",
  "pem-rfc7468",
  "pkcs8",
@@ -812,6 +814,15 @@ name = "hex-literal"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
+
+[[package]]
+name = "hkdf"
+version = "0.13.0-pre.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00176ff81091018d42ff82e8324f8e5adb0b7e0468d1358f653972562dbff031"
+dependencies = [
+ "hmac",
+]
 
 [[package]]
 name = "hmac"

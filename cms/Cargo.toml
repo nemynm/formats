@@ -58,6 +58,7 @@ builder = [
     "dep:cbc",
     "dep:cipher",
     "elliptic-curve/ecdh",
+    "elliptic-curve/pkcs8",
     "dep:rsa",
     "dep:sha1",
     "dep:sha2",

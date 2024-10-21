@@ -333,6 +333,7 @@ dependencies = [
  "cipher",
  "const-oid",
  "der",
+ "digest",
  "ecdsa",
  "elliptic-curve",
  "getrandom 0.3.1",

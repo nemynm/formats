@@ -378,6 +378,7 @@ dependencies = [
  "cipher",
  "const-oid",
  "der",
+ "digest",
  "ecdsa",
  "elliptic-curve",
  "getrandom",

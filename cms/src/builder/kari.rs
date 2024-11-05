@@ -6,11 +6,16 @@
 //! [RFC 5753]: https://datatracker.ietf.org/doc/html/rfc5753
 //!
 
+use core::{marker::PhantomData, ops::Add};
+
 // Super imports
 use super::{
-    utils::{try_ansi_x963_kdf, HashDigest, KeyWrapper},
-    AlgorithmIdentifierOwned, CryptoRngCore, KeyWrapAlgorithm, RecipientInfoBuilder,
-    RecipientInfoType, Result, UserKeyingMaterial,
+    utils::{
+        kw::{KeyWrapAlgorithm, WrappedKey},
+        try_ansi_x963_kdf, HashDigest,
+    },
+    AlgorithmIdentifierOwned, CryptoRngCore, RecipientInfoBuilder, RecipientInfoType, Result,
+    UserKeyingMaterial,
 };
 
 // Crate imports
@@ -24,6 +29,7 @@ use crate::{
     },
 };
 
+use cipher::KeySizeUser;
 // Internal imports
 use const_oid::{AssociatedOid, ObjectIdentifier};
 use der::{
@@ -35,6 +41,10 @@ use der::{
 use alloc::{vec, vec::Vec};
 
 // RustCrypto imports
+use aes::cipher::{
+    array::ArraySize,
+    typenum::{Sum, U8},
+};
 use elliptic_curve::{
     ecdh::EphemeralSecret,
     point::PointCompression,
@@ -156,11 +166,11 @@ where
         C::OID
     }
 }
-impl<C> From<&EcKeyEncryptionInfo<C>> for AlgorithmIdentifierOwned
+impl<C> From<EcKeyEncryptionInfo<C>> for AlgorithmIdentifierOwned
 where
     C: CurveArithmetic + AssociatedOid,
 {
-    fn from(ec_key_encryption_info: &EcKeyEncryptionInfo<C>) -> Self {
+    fn from(ec_key_encryption_info: EcKeyEncryptionInfo<C>) -> Self {
         let parameters = Some(Any::from(&ec_key_encryption_info.get_oid()));
         AlgorithmIdentifierOwned {
             oid: elliptic_curve::ALGORITHM_OID, // id-ecPublicKey
@@ -173,10 +183,12 @@ where
 /// This type uses key agreement:  the recipient's public key and the sender's
 /// private key are used to generate a pairwise symmetric key, then
 /// the content-encryption key is encrypted in the pairwise symmetric key.
-pub struct KeyAgreeRecipientInfoBuilder<'a, R, C>
+pub struct KeyAgreeRecipientInfoBuilder<'a, R, C, KW, Enc>
 where
     R: CryptoRngCore,
     C: CurveArithmetic,
+    KW: KeyWrapAlgorithm,
+    Enc: KeySizeUser,
 {
     /// Optional information which helps generating different keys every time.
     pub ukm: Option<UserKeyingMaterial>,
@@ -186,16 +198,18 @@ where
     pub eckey_encryption_info: EcKeyEncryptionInfo<C>,
     /// Content encryption algorithm
     pub key_agreement_algorithm: KeyAgreementAlgorithm,
-    /// Content encryption algorithm
-    pub key_wrap_algorithm: KeyWrapAlgorithm,
     /// Rng
     rng: &'a mut R,
+    kw_algo: PhantomData<KW>,
+    enc_cipher: PhantomData<Enc>,
 }
 
-impl<'a, R, C> KeyAgreeRecipientInfoBuilder<'a, R, C>
+impl<'a, R, C, KW, Enc> KeyAgreeRecipientInfoBuilder<'a, R, C, KW, Enc>
 where
     R: CryptoRngCore,
     C: CurveArithmetic,
+    KW: KeyWrapAlgorithm,
+    Enc: KeySizeUser,
 {
     /// Creates a `KeyAgreeRecipientInfoBuilder`
     pub fn new(
@@ -203,25 +217,30 @@ where
         rid: KeyAgreeRecipientIdentifier,
         eckey_encryption_info: EcKeyEncryptionInfo<C>,
         key_agreement_algorithm: KeyAgreementAlgorithm,
-        key_wrap_algorithm: KeyWrapAlgorithm,
         rng: &'a mut R,
-    ) -> Result<KeyAgreeRecipientInfoBuilder<'a, R, C>> {
+    ) -> Result<KeyAgreeRecipientInfoBuilder<'a, R, C, KW, Enc>> {
         Ok(KeyAgreeRecipientInfoBuilder {
             ukm,
             eckey_encryption_info,
             key_agreement_algorithm,
-            key_wrap_algorithm,
             rid,
             rng,
+            kw_algo: PhantomData,
+            enc_cipher: PhantomData,
         })
     }
 }
-impl<'a, R, C> RecipientInfoBuilder for KeyAgreeRecipientInfoBuilder<'a, R, C>
+impl<'a, R, C, KW, Enc> RecipientInfoBuilder for KeyAgreeRecipientInfoBuilder<'a, R, C, KW, Enc>
 where
     R: CryptoRngCore,
     C: CurveArithmetic + AssociatedOid + PointCompression,
     AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
     FieldBytesSize<C>: ModulusSize,
+    KW: KeyWrapAlgorithm,
+    AlgorithmIdentifierOwned: From<KW>,
+    Enc: KeySizeUser,
+    Sum<Enc::KeySize, U8>: ArraySize,
+    <Enc as KeySizeUser>::KeySize: Add<U8>,
 {
     /// Returns the RecipientInfoType
     fn recipient_info_type(&self) -> RecipientInfoType {
@@ -276,8 +295,7 @@ where
                 // this specification, 3DES wrap has NULL parameters while the AES
                 // wraps have absent parameters.
                 // ```
-                let key_wrap_algorithm_identifier: AlgorithmIdentifierOwned =
-                    self.key_wrap_algorithm.into();
+                let key_wrap_algorithm_identifier = KW::algorithm_identifier();
                 let key_wrap_algorithm_der = key_wrap_algorithm_identifier.to_der()?;
 
                 // As per https://datatracker.ietf.org/doc/html/rfc5753#section-7.2"
@@ -297,7 +315,7 @@ where
                 // (For example, for AES-256 it would be 00 00 01 00.)
                 // ```
                 let key_wrap_algo_keysize_bits_in_be_bytes: [u8; 4] =
-                    self.key_wrap_algorithm.key_size_in_bits().to_be_bytes();
+                    KW::key_size_in_bits().to_be_bytes();
 
                 let shared_info = EccCmsSharedInfo {
                     key_info: key_wrap_algorithm_identifier,
@@ -307,26 +325,26 @@ where
                 let shared_info_der = shared_info.to_der()?;
 
                 // Init a wrapping key (KEK) based on KeyWrapAlgorithm and on CEK (i.e. key to wrap) size
-                let mut key_wrapper =
-                    KeyWrapper::try_new(&self.key_wrap_algorithm, content_encryption_key.len())?;
+                let mut kek = KW::init_kek();
+                let mut wrapped: WrappedKey<Enc> = KW::init_wrapped();
 
                 // Derive the Key Encryption Key (KEK) from Shared Secret using ANSI X9.63 KDF
                 let digest = HashDigest::from(&self.key_agreement_algorithm);
                 try_ansi_x963_kdf(
                     non_uniformly_random_shared_secret_bytes.as_slice(),
                     &shared_info_der,
-                    &mut key_wrapper,
+                    &mut kek,
                     &digest,
                 )?;
 
                 // Wrap the Content Encryption Key (CEK) with the KEK
-                key_wrapper.try_wrap(content_encryption_key)?;
+                KW::try_wrap(&kek, content_encryption_key, wrapped.as_mut())?;
 
                 // Return data
                 (
-                    Vec::from(key_wrapper),
+                    Vec::from(wrapped),
                     ephemeral_public_key_encoded_point,
-                    AlgorithmIdentifierOwned::from(&self.eckey_encryption_info),
+                    self.eckey_encryption_info.into(),
                     AlgorithmIdentifierOwned {
                         oid: self.key_agreement_algorithm.oid(),
                         parameters: Some(Any::from_der(&key_wrap_algorithm_der)?),
@@ -440,7 +458,7 @@ mod tests {
                 oid: ObjectIdentifier::new_unwrap("1.2.840.10045.2.1"),
                 parameters: Some(ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7").into()),
             },
-            AlgorithmIdentifierOwned::from(&ec_key_encryption_info)
+            AlgorithmIdentifierOwned::from(ec_key_encryption_info)
         )
     }
 }

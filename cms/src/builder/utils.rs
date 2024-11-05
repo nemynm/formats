@@ -9,4 +9,3 @@ mod kdf;
 pub(super) mod kw;
 
 pub(super) use kdf::{try_ansi_x963_kdf, HashDigest};
-pub(super) use kw::KeyWrapper;

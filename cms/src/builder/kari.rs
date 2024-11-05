@@ -6,8 +6,6 @@
 //! [RFC 5753]: https://datatracker.ietf.org/doc/html/rfc5753
 //!
 
-use core::{marker::PhantomData, ops::Add};
-
 // Super imports
 use super::{
     utils::{
@@ -29,7 +27,6 @@ use crate::{
     },
 };
 
-use cipher::KeySizeUser;
 // Internal imports
 use const_oid::{AssociatedOid, ObjectIdentifier};
 use der::{
@@ -40,10 +37,14 @@ use der::{
 // Alloc imports
 use alloc::{vec, vec::Vec};
 
+// Core imports
+use core::{marker::PhantomData, ops::Add};
+
 // RustCrypto imports
 use aes::cipher::{
     array::ArraySize,
     typenum::{Sum, U8},
+    KeySizeUser,
 };
 use elliptic_curve::{
     ecdh::EphemeralSecret,

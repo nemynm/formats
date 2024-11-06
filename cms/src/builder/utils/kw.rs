@@ -124,18 +124,6 @@ where
     inner: Array<u8, Sum<T::KeySize, U8>>,
 }
 
-impl<T> WrappedKey<T>
-where
-    T: KeySizeUser,
-    Sum<T::KeySize, U8>: ArraySize,
-    <T as KeySizeUser>::KeySize: Add<U8>,
-{
-    // Function to get a mutable reference to the inner array
-    pub(crate) fn as_mut(&mut self) -> &mut [u8] {
-        self.inner.as_mut_slice()
-    }
-}
-
 impl<T> AsMut<[u8]> for WrappedKey<T>
 where
     T: KeySizeUser,

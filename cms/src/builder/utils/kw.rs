@@ -57,29 +57,9 @@ pub struct KeyWrap<C> {
 }
 
 /// Represents key wrap algorithms methods.
-pub trait KeyWrapAlgorithm {
+pub trait KeyWrapAlgorithm: AssociatedOid {
     /// Represent the key size of the wrap algorithm
     type KeySize: ArraySize;
-
-    /// Return parameters of the algorithm to be used in the context of `AlgorithmIdentifierOwned`.
-    ///
-    /// It should be absent as defined in [RFC 3565 Section 2.3.2] and per usage in [RFC 5753 Section 7.2].
-    ///
-    /// [RFC 3565 Section 2.3.2]:
-    /// ```text
-    /// NIST has assigned the following OIDs to define the AES key wrap
-    /// algorithm.
-    ///
-    ///     id-aes128-wrap OBJECT IDENTIFIER ::= { aes 5 }
-    ///     id-aes192-wrap OBJECT IDENTIFIER ::= { aes 25 }
-    ///     id-aes256-wrap OBJECT IDENTIFIER ::= { aes 45 }
-    ///
-    /// In all cases the parameters field MUST be absent.
-    /// ```
-    ///
-    /// [RFC 3565 Section 2.3.2]: https://datatracker.ietf.org/doc/html/rfc3565#section-2.3.2
-    /// [RFC 5753 Section 7.2]: https://datatracker.ietf.org/doc/html/rfc5753#section-7.2
-    fn parameters() -> Option<Any>;
 
     /// Return key size of the key-wrap algorithm in bits
     fn key_size_in_bits() -> u32;
@@ -121,6 +101,7 @@ where
 {
     const OID: ObjectIdentifier = Kek::<Aes>::OID;
 }
+
 impl<Aes> From<KeyWrap<Aes>> for AlgorithmIdentifierOwned
 where
     KeyWrap<Aes>: AssociatedOid,
@@ -187,20 +168,17 @@ where
         + BlockCipherEncrypt
         + BlockCipherDecrypt
         + KeySizeUser,
-    KeyWrap<AesWrap>: AssociatedOid,
+    Kek<AesWrap>: AssociatedOid,
 {
     type KeySize = AesWrap::KeySize;
 
-    fn parameters() -> Option<Any> {
-        None
-    }
     fn key_size_in_bits() -> u32 {
         AesWrap::KeySize::U32 * 8u32
     }
     fn algorithm_identifier() -> AlgorithmIdentifierOwned {
         AlgorithmIdentifierOwned {
-            oid: KeyWrap::OID,
-            parameters: KeyWrap::parameters(),
+            oid: KeyWrap::<AesWrap>::OID,
+            parameters: None,
         }
     }
 

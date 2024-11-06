@@ -7,8 +7,7 @@
 use crate::builder::{Error, Result};
 
 // Internal imports
-use const_oid::{AssociatedOid, ObjectIdentifier};
-use der::Any;
+use const_oid::{AssociatedOid, DynAssociatedOid, ObjectIdentifier};
 use spki::AlgorithmIdentifierOwned;
 
 // Alloc imports
@@ -101,16 +100,14 @@ where
 {
     const OID: ObjectIdentifier = Kek::<Aes>::OID;
 }
-
 impl<Aes> From<KeyWrap<Aes>> for AlgorithmIdentifierOwned
 where
     KeyWrap<Aes>: AssociatedOid,
 {
-    fn from(_: KeyWrap<Aes>) -> Self {
-        let parameters = Some(Any::from(KeyWrap::<Aes>::OID));
+    fn from(kw: KeyWrap<Aes>) -> Self {
         AlgorithmIdentifierOwned {
-            oid: elliptic_curve::ALGORITHM_OID, // id-ecPublicKey
-            parameters,                         // Curve OID
+            oid: kw.oid(),
+            parameters: None,
         }
     }
 }
@@ -177,7 +174,7 @@ where
     }
     fn algorithm_identifier() -> AlgorithmIdentifierOwned {
         AlgorithmIdentifierOwned {
-            oid: KeyWrap::<AesWrap>::OID,
+            oid: Self::OID,
             parameters: None,
         }
     }

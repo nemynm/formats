@@ -100,17 +100,6 @@ where
 {
     const OID: ObjectIdentifier = Kek::<Aes>::OID;
 }
-impl<Aes> From<KeyWrap<Aes>> for AlgorithmIdentifierOwned
-where
-    KeyWrap<Aes>: AssociatedOid,
-{
-    fn from(kw: KeyWrap<Aes>) -> Self {
-        AlgorithmIdentifierOwned {
-            oid: kw.oid(),
-            parameters: None,
-        }
-    }
-}
 
 /// Struct representing a wrapped key
 ///

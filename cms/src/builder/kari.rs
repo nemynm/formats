@@ -257,7 +257,6 @@ where
     AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
     FieldBytesSize<C>: ModulusSize,
     KW: KeyWrapAlgorithm,
-    AlgorithmIdentifierOwned: From<KW>,
     Enc: KeySizeUser,
     Sum<Enc::KeySize, U8>: ArraySize,
     <Enc as KeySizeUser>::KeySize: Add<U8>,

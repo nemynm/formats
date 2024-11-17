@@ -7,22 +7,22 @@
 use crate::builder::{Error, Result};
 
 // Internal imports
-use const_oid::{AssociatedOid, DynAssociatedOid, ObjectIdentifier};
+use const_oid::AssociatedOid;
 use spki::AlgorithmIdentifierOwned;
 
 // Alloc imports
 use alloc::{string::String, vec::Vec};
 
 // Core imports
-use core::{marker::PhantomData, ops::Add};
+use core::ops::Add;
 
 // Rust crypto imports
 use aes::cipher::{
     array::{Array, ArraySize},
     typenum::{Sum, Unsigned, U16, U8},
-    BlockCipherDecrypt, BlockCipherEncrypt, BlockSizeUser, KeyInit, KeySizeUser,
+    BlockCipherDecrypt, BlockCipherEncrypt, BlockSizeUser, Key, KeyInit, KeySizeUser,
 };
-use aes_kw::Kek;
+use aes_kw::AesKw;
 
 /// Represents supported key wrap algorithm for ECC - as defined in [RFC 5753 Section 7.1.5].
 ///
@@ -51,15 +51,8 @@ use aes_kw::Kek;
 /// [RFC 5753 Section 8]: https://datatracker.ietf.org/doc/html/rfc5753#section-8
 /// [RFC 5753 Section 7.1.5]: https://datatracker.ietf.org/doc/html/rfc5753#section-7.1.5
 ///
-pub struct KeyWrap<C> {
-    cipher: PhantomData<C>,
-}
-
 /// Represents key wrap algorithms methods.
-pub trait KeyWrapAlgorithm: AssociatedOid {
-    /// Represent the key size of the wrap algorithm
-    type KeySize: ArraySize;
-
+pub trait KeyWrapAlgorithm: AssociatedOid + KeySizeUser {
     /// Return key size of the key-wrap algorithm in bits
     fn key_size_in_bits() -> u32;
 
@@ -80,25 +73,19 @@ pub trait KeyWrapAlgorithm: AssociatedOid {
     /// [RFC 3565 Section 2.3.2]: https://datatracker.ietf.org/doc/html/rfc3565#section-2.3.2
     /// [RFC 5753 Section 7.2]: https://datatracker.ietf.org/doc/html/rfc5753#section-7.2
     fn algorithm_identifier() -> AlgorithmIdentifierOwned;
+
     /// Return an empty wrapping key (KEK) with the adequate size to be used with aes-key-wrap
-    fn init_kek() -> Array<u8, Self::KeySize>;
+    fn init_kek() -> Key<Self>;
+
     /// Return an empty wrapped key with the adequate size to be used with aes-key-wrap
     fn init_wrapped<T>() -> WrappedKey<T>
     where
         T: KeySizeUser,
         Sum<T::KeySize, U8>: ArraySize,
         <T as KeySizeUser>::KeySize: Add<U8>;
-    /// Try to wrap some data using given wrapping key
-    fn try_wrap(key: &Array<u8, Self::KeySize>, data: &[u8], out: &mut [u8]) -> Result<()>;
-}
 
-// AssociateOID for KeyWrap and supported AES cases.
-impl<Aes> AssociatedOid for KeyWrap<Aes>
-where
-    Kek<Aes>: AssociatedOid,
-    Aes: KeyInit + BlockSizeUser<BlockSize = U16> + BlockCipherEncrypt + BlockCipherDecrypt,
-{
-    const OID: ObjectIdentifier = Kek::<Aes>::OID;
+    /// Try to wrap some data using given wrapping key
+    fn try_wrap(key: &Key<Self>, data: &[u8], out: &mut [u8]) -> Result<()>;
 }
 
 /// Struct representing a wrapped key
@@ -135,20 +122,15 @@ where
     }
 }
 
-impl<AesWrap> KeyWrapAlgorithm for KeyWrap<AesWrap>
+impl<AesWrap> KeyWrapAlgorithm for AesKw<AesWrap>
 where
-    AesWrap: KeyInit
-        + BlockSizeUser<BlockSize = U16>
-        + BlockCipherEncrypt
-        + BlockCipherDecrypt
-        + KeySizeUser,
-    Kek<AesWrap>: AssociatedOid,
+    AesWrap: KeyInit + BlockSizeUser<BlockSize = U16> + BlockCipherEncrypt + BlockCipherDecrypt,
+    AesKw<AesWrap>: AssociatedOid + KeyInit,
 {
-    type KeySize = AesWrap::KeySize;
-
     fn key_size_in_bits() -> u32 {
         AesWrap::KeySize::U32 * 8u32
     }
+
     fn algorithm_identifier() -> AlgorithmIdentifierOwned {
         AlgorithmIdentifierOwned {
             oid: Self::OID,
@@ -156,24 +138,30 @@ where
         }
     }
 
-    fn init_kek() -> Array<u8, AesWrap::KeySize> {
-        Array::<u8, AesWrap::KeySize>::default()
+    fn init_kek() -> Key<Self> {
+        Key::<Self>::default()
     }
 
     fn init_wrapped<AesEnc>() -> WrappedKey<AesEnc>
     where
         AesEnc: KeySizeUser,
-        Sum<AesEnc::KeySize, U8>: ArraySize,
-        <AesEnc as KeySizeUser>::KeySize: Add<U8>,
+        Sum<AesEnc::KeySize, aes_kw::IvLen>: ArraySize,
+        <AesEnc as KeySizeUser>::KeySize: Add<aes_kw::IvLen>,
     {
         WrappedKey::<AesEnc> {
-            inner: Array::<u8, Sum<AesEnc::KeySize, U8>>::default(),
+            inner: Array::<u8, Sum<AesEnc::KeySize, aes_kw::IvLen>>::default(),
         }
     }
-    fn try_wrap(key: &Array<u8, AesWrap::KeySize>, data: &[u8], out: &mut [u8]) -> Result<()> {
-        let kek: Kek<AesWrap> = Kek::new(key);
-        kek.wrap(data, out)
-            .map_err(|_| Error::Builder(String::from("could not wrap key")))
+
+    fn try_wrap(key: &Key<Self>, data: &[u8], out: &mut [u8]) -> Result<()> {
+        let kek = AesKw::new(key);
+        let res = kek
+            .wrap_key(data, out)
+            .map_err(|_| Error::Builder(String::from("could not wrap key")))?;
+        if res.len() != out.len() {
+            return Err(Error::Builder(String::from("output buffer invalid size")));
+        }
+        Ok(())
     }
 }
 

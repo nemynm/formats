@@ -52,7 +52,7 @@ mod utils;
 
 // Exports
 pub use kari::{EcKeyEncryptionInfo, KeyAgreeRecipientInfoBuilder, KeyAgreementAlgorithm};
-pub use utils::kw::{KeyWrap, KeyWrapAlgorithm};
+pub use utils::kw::KeyWrapAlgorithm;
 
 /// Error type
 #[derive(Debug)]

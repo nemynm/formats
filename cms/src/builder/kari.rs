@@ -32,13 +32,10 @@ use der::{
 };
 
 // Core imports
-use core::marker::PhantomData;
+use core::{marker::PhantomData, ops::Add};
 
 // Alloc imports
 use alloc::{string::String, vec, vec::Vec};
-
-// Core imports
-use core::{marker::PhantomData, ops::Add};
 
 // RustCrypto imports
 use aes::cipher::{

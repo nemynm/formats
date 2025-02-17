@@ -110,13 +110,16 @@ pub struct EccCmsSharedInfo {
 /// [RFC 5753 Section 8]: https://datatracker.ietf.org/doc/html/rfc5753#section-8
 pub trait KeyAgreementAlgorithm {
     /// Compute a shared key with the provided parameters
-    fn kdf<C>(
+    fn kdf<C, Enc>(
         secret: &SharedSecret<C>,
         shared_info: &EccCmsSharedInfo,
-        key_wrapper: &mut KeyWrapper,
+        key_wrapper: &mut WrappedKey<Enc>,
     ) -> Result<()>
     where
-        C: Curve;
+        C: Curve,
+        Enc: KeySizeUser,
+        Sum<Enc::KeySize, U8>: ArraySize,
+        <Enc as KeySizeUser>::KeySize: Add<U8>;
 }
 
 /// Support for EnvelopedData with the ephemeral-static ECDH cofactor primitive
@@ -128,13 +131,16 @@ impl<D> KeyAgreementAlgorithm for DhSinglePassStdDhKdf<D>
 where
     D: Digest + FixedOutputReset,
 {
-    fn kdf<C>(
+    fn kdf<C, Enc>(
         secret: &SharedSecret<C>,
         shared_info: &EccCmsSharedInfo,
-        key_wrapper: &mut KeyWrapper,
+        key_wrapper: &mut WrappedKey<Enc>,
     ) -> Result<()>
     where
         C: Curve,
+        Enc: KeySizeUser,
+        Sum<Enc::KeySize, U8>: ArraySize,
+        <Enc as KeySizeUser>::KeySize: Add<U8>,
     {
         let shared_info_der = shared_info.to_der()?;
         let secret_bytes = secret.raw_secret_bytes();
@@ -348,14 +354,14 @@ where
                 };
 
                 // Init a wrapping key (KEK) based on KeyWrapAlgorithm and on CEK (i.e. key to wrap) size
-                let mut kek = KW::init_kek();
+                let kek = KW::init_kek();
                 let mut wrapped: WrappedKey<Enc> = KW::init_wrapped();
 
                 // Derive the Key Encryption Key (KEK) from Shared Secret using ANSI X9.63 KDF
                 KA::kdf(
                     &non_uniformly_random_shared_secret,
                     &shared_info,
-                    &mut key_wrapper,
+                    &mut wrapped,
                 )?;
 
                 // Wrap the Content Encryption Key (CEK) with the KEK
